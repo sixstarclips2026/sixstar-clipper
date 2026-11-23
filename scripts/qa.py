@@ -9,7 +9,7 @@ FOREIGN = re.compile(r"media share|caption|tiktok|this video|youtube|watch this|
 
 
 def probe(path):
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration",
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height,duration:format=duration",
                           "-of", "json", path], capture_output=True, text=True).stdout
     return json.loads(out)
 
@@ -41,6 +41,9 @@ def main():
     has_audio = any(s["codec_type"] == "audio" for s in streams)
     dur = float(info.get("format", {}).get("duration", 0))
 
+    a = next((s for s in streams if s["codec_type"] == "audio"), {})
+    if v.get("duration") and a.get("duration") and abs(float(v["duration"]) - float(a["duration"])) > 1.0:
+        fails.append(f"Bild und Ton laufen auseinander (Bild {float(v['duration']):.1f} s, Ton {float(a['duration']):.1f} s)")
     if (v.get("width"), v.get("height")) != (1080, 1920):
         fails.append(f"Format {v.get('width')}x{v.get('height')} statt 1080x1920")
     if dur < 7:
