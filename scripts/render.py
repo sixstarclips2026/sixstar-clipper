@@ -4,7 +4,7 @@
 Layouts: split (Facecam oben, Gameplay unten), full (Mitte-Crop), blur (16:9 auf unscharfem Hintergrund).
 Overlays (ASS/libass): Hook oben, Credit, Werbekennzeichnung, Wort-Untertitel (optional, aus Whisper-JSON).
 """
-import argparse, json, subprocess, sys, textwrap
+import argparse, json, re, subprocess, sys, textwrap
 from pathlib import Path
 
 W, H = 1080, 1920
@@ -113,8 +113,16 @@ def build_ass(args, dur, top_h, subs):
         d_end = end if args.disc_sec <= 0 else ass_time(min(dur, args.disc_sec))
         lines.append(f"Dialogue: 3,0:00:00.00,{d_end},Disc,,0,0,0,,{esc(args.disc)}")
     for s in subs:
-        lines.append(f"Dialogue: 1,{ass_time(s['start'])},{ass_time(s['end'])},Sub,,0,0,0,,{esc(s['text'].upper())}")
+        lines.append(f"Dialogue: 1,{ass_time(s['start'])},{ass_time(s['end'])},Sub,,0,0,0,,{esc(censor(s['text']).upper())}")
     return "\n".join(lines) + "\n"
+
+
+CENSOR = re.compile(r"\b(n+[i1]+g+(?:a|as|az|er|ers|uh)?|f+a+g+(?:s|got|gots)?|r+e+t+a+r+d+(?:s|ed)?)\b", re.I)
+
+
+def censor(text):
+    """Beleidigungen in Untertiteln maskieren (Plattform-Richtlinien)."""
+    return CENSOR.sub(lambda m: m.group(0)[0] + "*" * (len(m.group(0)) - 1), text)
 
 
 def word_chunks(words_json, max_words=3, max_gap=0.6):
