@@ -74,6 +74,13 @@ jobs:
           python scripts/render.py --input src.mp4 --out "$NAME.mp4" --layout "$LAYOUT" \
             --fc-corner "$CORNER" --fc-size "$FCSIZE" --hook "$HOOK" --credit "$CREDIT" --disc "$DISC" $WORDS
 
+      - name: Qualitäts-Tor (Ton, Format, Länge, Media-Share)
+        env:
+          NAME: ${{ matrix.job.name }}
+        run: |
+          W=""; [ -f words.json ] && W="words.json"
+          python scripts/qa.py "$NAME.mp4" "$W" qa.json | tee -a $GITHUB_STEP_SUMMARY
+
       - name: Als öffentliche Datei bereitstellen (Release "clips")
         env:
           GH_TOKEN: ${{ github.token }}
