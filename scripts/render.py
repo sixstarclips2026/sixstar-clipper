@@ -32,6 +32,47 @@ def crop_for(vw, vh, aspect, zoom, px, py):
     return even(w), even(h), even((vw - w) * px), even((vh - h) * py)
 
 
+def detect_facecam(path, vw, vh, dur, samples=8):
+    """Sucht eine fest stehende Facecam (Gesicht an immer derselben Stelle). Rückgabe: (x, y, w, h) oder None."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    try:
+        casc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        if casc.empty():
+            return None
+    except Exception:
+        return None
+    hits = []
+    for k in range(samples):
+        t = dur * (k + 0.5) / samples
+        png = f"/tmp/fc_{k}.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", png])
+        img = cv2.imread(png)
+        if img is None:
+            continue
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = casc.detectMultiScale(gray, 1.1, 6, minSize=(int(vw * 0.03), int(vw * 0.03)))
+        for (x, y, w, h) in faces:
+            if w < vw * 0.25:  # Facecam-Gesichter sind klein im Bild
+                hits.append((x + w / 2, y + h / 2, w))
+    if len(hits) < max(3, samples // 3):
+        return None
+    # größter Cluster von Gesichtsmitten, die nahe beieinander liegen
+    best = []
+    for c in hits:
+        group = [h for h in hits if abs(h[0] - c[0]) < vw * 0.06 and abs(h[1] - c[1]) < vh * 0.06]
+        if len(group) > len(best):
+            best = group
+    if len(best) < max(3, samples // 3):
+        return None
+    cx = sum(h[0] for h in best) / len(best)
+    cy = sum(h[1] for h in best) / len(best)
+    fw = sum(h[2] for h in best) / len(best)
+    return cx, cy, fw
+
+
 def ass_time(t):
     t = max(0.0, t)
     h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
@@ -52,7 +93,7 @@ def hook_markup(text):
 
 
 def build_ass(args, dur, top_h, subs):
-    hook_y = int(top_h if args.layout == "split" else H * 0.13)
+    hook_y = int(top_h if args.layout == "split" else H * 0.22)
     lines = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "WrapStyle: 0", "",
         "[V4+ Styles]",
@@ -92,7 +133,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--layout", default="split", choices=["split", "full", "blur"])
+    ap.add_argument("--layout", default="auto", choices=["auto", "split", "full", "blur"])
     ap.add_argument("--fc-corner", default="tr", choices=["tl", "tr", "bl", "br"])
     ap.add_argument("--fc-size", type=float, default=0.26, help="Facecam-Breite als Anteil der Quellbreite")
     ap.add_argument("--split", type=float, default=0.40, help="Anteil oben (Facecam)")
@@ -109,7 +150,22 @@ def main():
 
     vw, vh, dur = probe(a.input)
     top_h = even(H * a.split)
-    if a.layout == "split":
+    face = None
+    if a.layout == "auto":
+        face = detect_facecam(a.input, vw, vh, dur)
+        a.layout = "split" if face else "blur"
+        print(json.dumps({"auto_layout": a.layout, "face": face}))
+    if a.layout == "split" and face:
+        cx, cy, fwid = face
+        fw = even(min(vw, fwid * 3.4)); fh = even(fw / (W / top_h))
+        if fh > vh:
+            fh = even(vh); fw = even(fh * (W / top_h))
+        fx = even(min(max(0, cx - fw / 2), vw - fw)); fy = even(min(max(0, cy - fh * 0.45), vh - fh))
+        gw, gh, gx, gy = crop_for(vw, vh, W / (H - top_h), a.zoom, a.gpx, 0.5)
+        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},scale={W}:{top_h}[t];"
+              f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}[g];[t][g]vstack,"
+              f"drawbox=x=0:y={top_h-3}:w={W}:h=6:color=0xff3e9d:t=fill")
+    elif a.layout == "split":
         fw, fh, _, _ = crop_for(vw, vh, W / top_h, 1.0, 0, 0)
         fw = even(min(vw * a.fc_size, fw)); fh = even(fw / (W / top_h))
         fx = even((vw - fw) * (1 if a.fc_corner[1] == "r" else 0))
