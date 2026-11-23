@@ -1,0 +1,11 @@
+{
+  "clip": "clips_tmp/skii-005-shark.mp4",
+  "duration": 120.0,
+  "passed": false,
+  "fails": [
+    "Bild und Ton laufen auseinander (Bild 120.0 s, Ton 60.1 s)"
+  ],
+  "warns": [
+    "lang (120 s) – Shorts/TikTok-Retention prüfen"
+  ]
+}
