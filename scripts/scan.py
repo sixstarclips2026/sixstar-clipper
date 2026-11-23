@@ -60,15 +60,17 @@ def transcribe_windows(src, cands, pre=25, post=15):
         segs = list(segs)
         text = " ".join(x.text.strip() for x in segs)
         hits = len(REACT.findall(text))
+        # Media-Share/Reaktion auf fremde Videos ist kein eigenes Gameplay -> stark abwerten
+        foreign = bool(re.search(r"media share|caption|tiktok|this video|youtube|watch this|reacting to", text, re.I))
         words = len(text.split())
         # Reaktionen und Sprache zählen mehr als reine Lautstärke (Musik/Alerts sind laut, aber nicht lustig)
-        score = round((min(loud, 25) * 0.4 + hits * 3 + min(words, 90) / 30) if words >= 12 else -1, 2)
+        score = round((min(loud, 25) * 0.4 + hits * 3 + min(words, 90) / 30 - (8 if foreign else 0)) if words >= 12 else -1, 2)
         # Clip so schneiden, dass er auf einem Satzanfang startet und kurz nach dem Höhepunkt endet
         starts = [s + x.start for x in segs if s + x.start <= t - 3]
         clip_start = max(s, (starts[-3] if len(starts) >= 3 else (starts[0] if starts else t - 20)))
         clip_end = min(t + 12, clip_start + 55)
         out.append({"peak": t, "start": round(clip_start, 1), "end": round(clip_end, 1),
-                    "loud": loud, "reactions": hits, "score": score, "text": text[:700]})
+                    "loud": loud, "reactions": hits, "foreign": foreign, "score": score, "text": text[:700]})
     return sorted(out, key=lambda x: x["score"], reverse=True)
 
 
