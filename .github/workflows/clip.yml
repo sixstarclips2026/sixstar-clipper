@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       jobs:
-        description: 'JSON-Liste der Clips: name, url, start, end, [layout split|full|blur], [corner tl|tr|bl|br], [fc_size], [hook], [credit], [disc], [subs true|false]'
+        description: 'JSON-Liste der Clips: name, url, start, end, [layout split|full|blur], [corner tl|tr|bl|br], [fc_size], [hook], [credit], [disc], [subs true|false]. Neu-Render: nur Namen, z. B. ["kai-001-skunkape"] oder mit Änderung {"name":"kai-001-skunkape","hook":"..."}'
         required: true
 
 permissions:
@@ -18,14 +18,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      jobs: ${{ steps.r.outputs.jobs }}
+    steps:
+      - name: Rezepte auflösen (gespeicherte Clips per Name neu rendern)
+        id: r
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOBS: ${{ inputs.jobs }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          out = []
+          for j in json.loads(os.environ["JOBS"]):
+              if isinstance(j, str):
+                  j = {"name": j}
+              if "url" not in j:
+                  subprocess.run(["gh", "release", "download", "clips", "-R", os.environ["REPO"],
+                                  "-p", j["name"] + ".job.json", "--clobber"], check=True)
+                  base = json.load(open(j["name"] + ".job.json"))
+                  base.update(j)
+                  j = base
+              out.append(j)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("jobs=" + json.dumps(out) + "\n")
+          print(json.dumps(out, indent=1))
+          PY
+
   clip:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
-        job: ${{ fromJSON(inputs.jobs) }}
+        job: ${{ fromJSON(needs.plan.outputs.jobs) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -85,7 +116,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NAME: ${{ matrix.job.name }}
+          JOB: ${{ toJSON(matrix.job) }}
         run: |
           gh release view clips >/dev/null 2>&1 || gh release create clips --title "Clips" --notes "Automatisch erzeugte Clips"
-          gh release upload clips "$NAME.mp4" --clobber
+          printf '%s' "$JOB" > "$NAME.job.json"
+          gh release upload clips "$NAME.mp4" "$NAME.job.json" --clobber
           echo "### Fertig: https://github.com/${{ github.repository }}/releases/download/clips/$NAME.mp4" >> $GITHUB_STEP_SUMMARY
