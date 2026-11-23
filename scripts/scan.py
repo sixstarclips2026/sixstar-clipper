@@ -29,7 +29,7 @@ def loudness(src):
     return [max(per_sec.get(i, [-70])) for i in range(n)]
 
 
-def peaks(lv, top_k=14, win=300, min_gap=90):
+def peaks(lv, top_k=24, win=300, min_gap=90):
     n = len(lv)
     smooth = [sum(lv[max(0, i - 1):i + 2]) / len(lv[max(0, i - 1):i + 2]) for i in range(n)]
     scores = []
@@ -61,7 +61,8 @@ def transcribe_windows(src, cands, pre=25, post=15):
         text = " ".join(x.text.strip() for x in segs)
         hits = len(REACT.findall(text))
         words = len(text.split())
-        score = round(loud * 1.0 + hits * 1.5 + min(words, 80) / 40, 2)
+        # Reaktionen und Sprache zählen mehr als reine Lautstärke (Musik/Alerts sind laut, aber nicht lustig)
+        score = round((min(loud, 25) * 0.4 + hits * 3 + min(words, 90) / 30) if words >= 12 else -1, 2)
         # Clip so schneiden, dass er auf einem Satzanfang startet und kurz nach dem Höhepunkt endet
         starts = [s + x.start for x in segs if s + x.start <= t - 3]
         clip_start = max(s, (starts[-3] if len(starts) >= 3 else (starts[0] if starts else t - 20)))
