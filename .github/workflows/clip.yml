@@ -51,7 +51,7 @@ jobs:
           ls -lh src.mp4
 
       - name: Untertitel erzeugen
-        if: ${{ matrix.job.subs != false && matrix.job.subs != 'false' }}
+        if: ${{ format('{0}', matrix.job.subs) != 'false' }}
         run: python scripts/transcribe.py src.mp4 words.json en
 
       - name: Clip rendern (9:16)
