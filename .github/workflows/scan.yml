@@ -1,0 +1,60 @@
+name: Moment Scanner
+
+# Findet Höhepunkte in VODs (Lautheit + Whisper-Transkript) und legt sie unter candidates/<name>.json ab.
+# jobs='[{"name":"kai-day3","url":"https://www.twitch.tv/videos/...","start":"00:00:00","end":"03:00:00"}]'
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'JSON-Liste: name, url, [start], [end] (Abschnitt des VODs, Standard: ganzes VOD bis 4 h)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        job: ${{ fromJSON(inputs.jobs) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Werkzeuge
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -U yt-dlp faster-whisper
+      - name: Ton herunterladen
+        env:
+          URL: ${{ matrix.job.url }}
+          START: ${{ matrix.job.start || '00:00:00' }}
+          END: ${{ matrix.job.end || '04:00:00' }}
+        run: |
+          yt-dlp --no-playlist --download-sections "*${START}-${END}" -f "bestaudio/audio_only/worst" \
+            -x --audio-format m4a -o "audio.%(ext)s" "$URL"
+          ls -lh audio.m4a
+      - name: Momente finden
+        env:
+          NAME: ${{ matrix.job.name }}
+          START: ${{ matrix.job.start || '00:00:00' }}
+        run: |
+          OFFSET=$(echo "$START" | awk -F: '{print ($1*3600)+($2*60)+$3}')
+          python scripts/scan.py audio.m4a "candidates/$NAME.json" "$OFFSET"
+      - name: Ergebnis speichern
+        env:
+          NAME: ${{ matrix.job.name }}
+        run: |
+          git config user.name "Six Star Scanner"
+          git config user.email "scanner@users.noreply.github.com"
+          git add candidates && git commit -qm "Kandidaten $NAME"
+          for i in 1 2 3 4 5 6; do
+            git pull -q --rebase origin main && git push -q && break
+            sleep $((RANDOM % 10 + 3))
+          done
