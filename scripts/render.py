@@ -196,6 +196,7 @@ def main():
     vf += f",ass={ass.as_posix()}[v]"
     cmd = ["ffmpeg", "-y", "-v", "error", "-i", a.input, "-filter_complex", vf, "-map", "[v]", "-map", "0:a?",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+           "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", a.out]
     subprocess.check_call(cmd)
     print(json.dumps({"out": a.out, "duration": round(dur, 2), "layout": a.layout}))
