@@ -1,9 +1,7 @@
 {
   "clip": "clips_tmp/skii-007-horses.mp4",
-  "duration": 82.0,
-  "passed": false,
-  "fails": [
-    "Bild und Ton laufen auseinander (Bild 82.0 s, Ton 41.1 s)"
-  ],
+  "duration": 41.1,
+  "passed": true,
+  "fails": [],
   "warns": []
 }

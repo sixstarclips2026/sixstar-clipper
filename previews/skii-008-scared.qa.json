@@ -1,9 +1,7 @@
 {
   "clip": "clips_tmp/skii-008-scared.mp4",
-  "duration": 60.0,
-  "passed": false,
-  "fails": [
-    "Bild und Ton laufen auseinander (Bild 60.0 s, Ton 30.0 s)"
-  ],
+  "duration": 30.0,
+  "passed": true,
+  "fails": [],
   "warns": []
 }

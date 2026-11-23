@@ -1,9 +1,7 @@
 {
   "clip": "clips_tmp/dom-002-finessed.mp4",
-  "duration": 104.0,
+  "duration": 52.1,
   "passed": true,
   "fails": [],
-  "warns": [
-    "lang (104 s) – Shorts/TikTok-Retention prüfen"
-  ]
+  "warns": []
 }
