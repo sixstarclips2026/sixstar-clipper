@@ -53,7 +53,7 @@ def detect_facecam(path, vw, vh, dur, samples=8):
         if img is None:
             continue
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = casc.detectMultiScale(gray, 1.1, 6, minSize=(int(vw * 0.03), int(vw * 0.03)))
+        faces = casc.detectMultiScale(gray, 1.08, 5, minSize=(int(vw * 0.015), int(vw * 0.015)))
         for (x, y, w, h) in faces:
             if w < vw * 0.25:  # Facecam-Gesichter sind klein im Bild
                 hits.append((x + w / 2, y + h / 2, w))
