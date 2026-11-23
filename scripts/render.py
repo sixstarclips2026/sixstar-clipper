@@ -159,8 +159,17 @@ def build_ass(args, dur, top_h, subs):
 CENSOR = re.compile(r"\b(n+[i1]+g+(?:a|as|az|er|ers|uh)?|f+a+g+(?:s|got|gots)?|r+e+t+a+r+d+(?:s|ed)?)\b", re.I)
 
 
+# Whisper verhört Streamer-Namen – Kampagnen verlangen korrekte Schreibweise
+NAME_FIX = [(re.compile(p, re.I), r) for p, r in [
+    (r"\bc[iy]pher\b", "Sypher"), (r"\bsiph?er\b", "Sypher"), (r"\bkai (?:sen|cen|cin|sin)n?att?\b", "Kai Cenat"),
+    (r"\bski+ ?mask\b", "SkiiMask"), (r"\bmadd?(?:y|ie)\b", "Maddy"), (r"\breplay'?s\b", "Replays"),
+]]
+
+
 def censor(text):
-    """Beleidigungen in Untertiteln maskieren (Plattform-Richtlinien)."""
+    """Beleidigungen maskieren und bekannte Namen korrigieren (Plattform- und Kampagnenregeln)."""
+    for rx, rep in NAME_FIX:
+        text = rx.sub(rep, text)
     return CENSOR.sub(lambda m: m.group(0)[0] + "*" * (len(m.group(0)) - 1), text)
 
 
