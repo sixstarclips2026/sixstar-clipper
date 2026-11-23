@@ -47,6 +47,7 @@ jobs:
             gh release download clips -p "$n.mp4" -D clips_tmp --clobber || continue
             D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "clips_tmp/$n.mp4")
             ffmpeg -v error -y -i "clips_tmp/$n.mp4" -vf "fps=6/$D,scale=240:-2,tile=6x1:padding=6:color=white" -frames:v 1 "previews/$n.jpg"
+            python3 scripts/qa.py "clips_tmp/$n.mp4" "" "previews/$n.qa.json" || true
           done
       - name: Speichern
         run: |
