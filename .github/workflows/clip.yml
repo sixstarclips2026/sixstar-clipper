@@ -64,7 +64,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
-          mkdir -p ~/.fonts && curl -sL -o ~/.fonts/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf && fc-cache -f
+          mkdir -p ~/.fonts
+          for i in 1 2 3 4 5; do curl -sfL -o ~/.fonts/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf && break; sleep 3; done
+          fc-cache -f
+          fc-list | grep -qi anton || { echo "Schrift Anton fehlt – Abbruch, damit kein Clip im falschen Stil entsteht"; exit 1; }
           pip install -q -U yt-dlp faster-whisper opencv-python-headless
 
       - name: Ausschnitt herunterladen
