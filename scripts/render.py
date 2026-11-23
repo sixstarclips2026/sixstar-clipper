@@ -1,5 +1,4 @@
-TEST-LINE
-zweite#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Six Star Clipper – rendert einen Stream-Ausschnitt zu einem 9:16-Clip.
 
 Layouts: split (Facecam oben, Gameplay unten), full (Mitte-Crop), blur (16:9 auf unscharfem Hintergrund).
