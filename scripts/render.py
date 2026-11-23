@@ -263,6 +263,8 @@ def main():
         vf = (f"[0:v]split=2[a][b];[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=30:2,eq=brightness=-0.25[bg];"
               f"[b]crop={sw}:{sh}:{even((vw-sw)*a.gpx)}:{even((vh-sh)/2)},scale={W}:{fg_h}[fg];[bg][fg]overlay=0:(H-h)/2")
 
+    # 60-fps-Quellen (Twitch) zuerst auf 30 fps: zoompan erzeugt sonst Zeitlupe mit doppelter Länge
+    vf = vf.replace("[0:v]", "[0:v]fps=30,", 1)
     ass = Path(a.out).with_suffix(".ass")
     ass.write_text(build_ass(a, dur, top_h, word_chunks(a.words)), encoding="utf-8")
     if a.style == "v2":
