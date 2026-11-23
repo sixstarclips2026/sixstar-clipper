@@ -1,0 +1,47 @@
+name: Clip Preview
+
+# Erzeugt für fertige Clips ein Vorschaubild (6 Bilder nebeneinander) unter previews/<name>.jpg,
+# damit jeder Clip vor dem Posten geprüft werden kann.
+# names='["dom-001-bear","kai-001-skunkape"]'
+
+on:
+  workflow_dispatch:
+    inputs:
+      names:
+        description: 'JSON-Liste der Clip-Namen (ohne .mp4)'
+        required: false
+  workflow_run:
+    workflows: ["Six Star Clipper"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vorschauen erzeugen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAMES: ${{ inputs.names }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg jq
+          mkdir -p previews clips_tmp
+          if [ -z "$NAMES" ]; then
+            NAMES=$(gh release view clips --json assets -q '[.assets[].name | select(endswith(".mp4")) | sub(".mp4$";"")]')
+          fi
+          for n in $(echo "$NAMES" | jq -r '.[]'); do
+            [ -f "previews/$n.jpg" ] && [ -z "${{ inputs.names }}" ] && continue
+            gh release download clips -p "$n.mp4" -D clips_tmp --clobber || continue
+            D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "clips_tmp/$n.mp4")
+            ffmpeg -v error -y -i "clips_tmp/$n.mp4" -vf "fps=6/$D,scale=240:-2,tile=6x1:padding=6:color=white" -frames:v 1 "previews/$n.jpg"
+          done
+      - name: Speichern
+        run: |
+          git config user.name "Six Star Preview"
+          git config user.email "preview@users.noreply.github.com"
+          git add previews && git commit -qm "Vorschauen" || exit 0
+          for i in 1 2 3 4 5 6; do git pull -q --rebase origin main && git push -q && break; sleep 5; done
