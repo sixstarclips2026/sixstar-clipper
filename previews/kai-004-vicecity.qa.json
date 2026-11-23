@@ -1,0 +1,10 @@
+{
+  "clip": "clips_tmp/kai-004-vicecity.mp4",
+  "duration": 32.1,
+  "passed": false,
+  "fails": [
+    "Ton fehlt am Anfang (erste 2 s: -99 dB)",
+    "zu viel Stille (53% des Clips)"
+  ],
+  "warns": []
+}
