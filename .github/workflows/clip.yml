@@ -13,10 +13,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: clipper
-  cancel-in-progress: false
-
 jobs:
   plan:
     runs-on: ubuntu-latest
