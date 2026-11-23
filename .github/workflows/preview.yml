@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Vorschauen erzeugen
         env:
           GH_TOKEN: ${{ github.token }}
@@ -30,11 +32,18 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg jq
           mkdir -p previews clips_tmp
+          AUTO=0
           if [ -z "$NAMES" ]; then
+            AUTO=1
             NAMES=$(gh release view clips --json assets -q '[.assets[].name | select(endswith(".mp4")) | sub(".mp4$";"")]')
           fi
           for n in $(echo "$NAMES" | jq -r '.[]'); do
-            [ -f "previews/$n.jpg" ] && [ -z "${{ inputs.names }}" ] && continue
+            if [ "$AUTO" = 1 ] && [ -f "previews/$n.jpg" ]; then
+              # nur neu erzeugen, wenn der Clip neuer ist als die Vorschau (Neu-Render)
+              A=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/clips" -q ".assets[] | select(.name==\"$n.mp4\") | .updated_at")
+              P=$(git log -1 --format=%cI -- "previews/$n.jpg")
+              [ -n "$P" ] && [ "$(date -d "$A" +%s)" -le "$(date -d "$P" +%s)" ] && continue
+            fi
             gh release download clips -p "$n.mp4" -D clips_tmp --clobber || continue
             D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "clips_tmp/$n.mp4")
             ffmpeg -v error -y -i "clips_tmp/$n.mp4" -vf "fps=6/$D,scale=240:-2,tile=6x1:padding=6:color=white" -frames:v 1 "previews/$n.jpg"
