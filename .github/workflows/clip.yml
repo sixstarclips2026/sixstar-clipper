@@ -1,0 +1,78 @@
+name: Six Star Clipper
+
+# Start: Actions → "Six Star Clipper" → Run workflow, oder per gh:
+# gh workflow run clip.yml -f jobs='[{"name":"dylan-001","url":"https://www.youtube.com/watch?v=...","start":"03:12:40","end":"03:13:15","hook":"Dylan finds the *SECRET* spot","credit":"@dylan.page."}]'
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'JSON-Liste der Clips: name, url, start, end, [layout split|full|blur], [corner tl|tr|bl|br], [fc_size], [hook], [credit], [disc], [subs true|false]'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clipper
+  cancel-in-progress: false
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        job: ${{ fromJSON(inputs.jobs) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Werkzeuge installieren (kostenlos)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          mkdir -p ~/.fonts && curl -sL -o ~/.fonts/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf && fc-cache -f
+          pip install -q -U yt-dlp faster-whisper
+
+      - name: Ausschnitt herunterladen
+        env:
+          URL: ${{ matrix.job.url }}
+          START: ${{ matrix.job.start }}
+          END: ${{ matrix.job.end }}
+        run: |
+          yt-dlp --no-playlist --download-sections "*${START}-${END}" --force-keyframes-at-cuts \
+            -f "bv*[height<=1080]+ba/b[height<=1080]/b" --merge-output-format mp4 -o src.mp4 "$URL"
+          ls -lh src.mp4
+
+      - name: Untertitel erzeugen
+        if: ${{ matrix.job.subs != false && matrix.job.subs != 'false' }}
+        run: python scripts/transcribe.py src.mp4 words.json en
+
+      - name: Clip rendern (9:16)
+        env:
+          NAME: ${{ matrix.job.name }}
+          LAYOUT: ${{ matrix.job.layout || 'split' }}
+          CORNER: ${{ matrix.job.corner || 'tr' }}
+          FCSIZE: ${{ matrix.job.fc_size || '0.26' }}
+          HOOK: ${{ matrix.job.hook }}
+          CREDIT: ${{ matrix.job.credit }}
+          DISC: ${{ matrix.job.disc || '#ad' }}
+        run: |
+          WORDS=""; [ -f words.json ] && WORDS="--words words.json"
+          python scripts/render.py --input src.mp4 --out "$NAME.mp4" --layout "$LAYOUT" \
+            --fc-corner "$CORNER" --fc-size "$FCSIZE" --hook "$HOOK" --credit "$CREDIT" --disc "$DISC" $WORDS
+
+      - name: Als öffentliche Datei bereitstellen (Release "clips")
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ matrix.job.name }}
+        run: |
+          gh release view clips >/dev/null 2>&1 || gh release create clips --title "Clips" --notes "Automatisch erzeugte Clips"
+          gh release upload clips "$NAME.mp4" --clobber
+          echo "### Fertig: https://github.com/${{ github.repository }}/releases/download/clips/$NAME.mp4" >> $GITHUB_STEP_SUMMARY
