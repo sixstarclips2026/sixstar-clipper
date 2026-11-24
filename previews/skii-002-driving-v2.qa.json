@@ -1,10 +1,10 @@
 {
   "clip": "clips_tmp/skii-002-driving-v2.mp4",
-  "duration": 17.5,
+  "duration": 22.1,
   "passed": true,
   "fails": [],
   "warns": [],
-  "luma": 93.5,
+  "luma": 94.2,
   "face_share": null,
   "render": {}
 }
