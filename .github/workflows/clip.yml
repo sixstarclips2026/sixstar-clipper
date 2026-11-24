@@ -87,7 +87,8 @@ jobs:
           for i in 1 2 3 4 5; do curl -sfL -o ~/.fonts/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf && break; sleep 3; done
           fc-cache -f
           fc-list | grep -qi anton || { echo "Schrift Anton fehlt – Abbruch, damit kein Clip im falschen Stil entsteht"; exit 1; }
-          pip install -q -U yt-dlp faster-whisper opencv-python-headless
+          pip install -q -U yt-dlp faster-whisper "opencv-python-headless<5"
+          python -c "import cv2; c=cv2.CascadeClassifier(cv2.data.haarcascades+'haarcascade_frontalface_default.xml'); assert not c.empty(), 'Gesichtserkennung fehlt'; print('Gesichtserkennung ok', cv2.__version__)"
 
       - name: Hook prüfen (max. 9 Wörter, ein Schlüsselwort in Sternchen)
         env:
