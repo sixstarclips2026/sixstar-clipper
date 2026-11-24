@@ -258,6 +258,46 @@ def zoom_expr(peaks, z=0.12, hold=1.1):
     return "1+" + "+".join(terms)
 
 
+def measure_luma(path, dur, samples=8):
+    """Mittlere Helligkeit (Y, 0–255) über einige Bilder der Quelle."""
+    vals = []
+    for k in range(samples):
+        t = dur * (k + 0.5) / samples
+        r = subprocess.run(["ffmpeg", "-v", "info", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1",
+                            "-vf", "scale=320:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-f", "null", "-"],
+                           capture_output=True, text=True).stderr
+        m = re.findall(r"YAVG=([\d.]+)", r)
+        if m:
+            vals.append(float(m[-1]))
+    return sum(vals) / len(vals) if vals else None
+
+
+def light_filter(a, luma):
+    """Dunkle Szenen aufhellen (Handy-Bildschirme sind klein, Nachtszenen saufen ab)."""
+    if a.brightness == "off" or luma is None:
+        return "", None
+    if a.brightness != "auto":
+        g = float(a.brightness)
+    elif luma >= 70:
+        return "", None
+    else:
+        g = min(1.8, (85 / max(luma, 15)) ** 0.6)
+    return f"eq=gamma={g:.2f}:saturation=1.12,", round(g, 2)
+
+
+def bleep_spans(words_json, shift=0.0, until=1e9):
+    """Zeitfenster der Beleidigungen im Ton (aus den Whisper-Wörtern)."""
+    if not words_json:
+        return []
+    out = []
+    for w in json.loads(Path(words_json).read_text()):
+        if w["start"] >= until - 0.1:
+            continue
+        if CENSOR.search(w["word"]):
+            out.append((max(0.0, w["start"] + shift - 0.05), min(w["end"], until) + shift + 0.05))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -275,6 +315,9 @@ def main():
     ap.add_argument("--disc-sec", type=float, default=3)
     ap.add_argument("--words", default="", help="Whisper-Wort-JSON für Untertitel")
     ap.add_argument("--font", default="Anton")
+    ap.add_argument("--brightness", default="auto", help="auto | off | Gamma-Wert (z. B. 1.4)")
+    ap.add_argument("--bleep", default="on", choices=["on", "off"], help="Piepton über Beleidigungen im Ton")
+    ap.add_argument("--fc-box", default="", help="Facecam manuell: x,y,w,h als Anteile der Quelle (0–1)")
     ap.add_argument("--teaser", action="store_true", help="Cold Open: lauteste Reaktion 1,5 s vorab zeigen")
     ap.add_argument("--ending", default="natural", choices=["natural", "punch"], help="punch: Ende auf letzter Reaktion + 1 Takt")
     ap.add_argument("--beat", type=float, default=1.3, help="Takt nach der Pointe in Sekunden")
@@ -304,6 +347,13 @@ def main():
         fw = even(min(vw * a.fc_size, fw)); fh = even(fw / (W / top_h))
         fx = even((vw - fw) * (1 if a.fc_corner[1] == "r" else 0))
         fy = even((vh - fh) * (1 if a.fc_corner[0] == "b" else 0))
+        if a.fc_box:
+            bx, by, bw, bh = [float(v) for v in a.fc_box.split(",")]
+            cx, cy = (bx + bw / 2) * vw, (by + bh / 2) * vh
+            fw = even(max(bw * vw, bh * vh * W / top_h)); fh = even(fw / (W / top_h))
+            if fh > vh:
+                fh = even(vh); fw = even(fh * W / top_h)
+            fx = even(min(max(0, cx - fw / 2), vw - fw)); fy = even(min(max(0, cy - fh / 2), vh - fh))
         gw, gh, gx, gy = crop_for(vw, vh, W / (H - top_h), a.zoom, a.gpx, 0.5)
         vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},scale={W}:{top_h}[t];"
               f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}[g];[t][g]vstack,"
@@ -318,11 +368,15 @@ def main():
               f"[b]crop={sw}:{sh}:{even((vw-sw)*a.gpx)}:{even((vh-sh)/2)},scale={W}:{fg_h}[fg];[bg][fg]overlay=0:(H-h)/2")
 
     # 60-fps-Quellen (Twitch) zuerst auf 30 fps: zoompan erzeugt sonst Zeitlupe mit doppelter Länge
-    vf = vf.replace("[0:v]", "[0:v]fps=30,", 1)
+    luma = measure_luma(a.input, dur)
+    lf, gamma = light_filter(a, luma)
+    vf = vf.replace("[0:v]", "[0:v]fps=30," + lf, 1)
+    meta = {"layout": a.layout, "face": face, "luma": round(luma, 1) if luma else None, "gamma": gamma}
     ass = Path(a.out).with_suffix(".ass")
     ass.write_text(build_ass(a, dur, top_h, word_chunks(a.words, shift=sub_shift, until=sub_until)), encoding="utf-8")
     if a.style == "v2":
         peaks = reaction_peaks(a.input, dur)
+        meta["punch_ins"] = peaks
         print(json.dumps({"punch_ins": peaks}))
         if peaks:
             vf += (f",zoompan=z='{zoom_expr(peaks)}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
@@ -331,11 +385,21 @@ def main():
         vf += f"[base][bar]overlay=x='-{W}+{W}*t/{dur:.2f}':y={H-14}:shortest=1[v]"
     else:
         vf += f",ass={ass.as_posix()}[v]"
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", a.input, "-filter_complex", vf, "-map", "[v]", "-map", "0:a?",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
-           "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
-           "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", a.out]
+    spans = bleep_spans(a.words, sub_shift, sub_until) if a.bleep == "on" and has_audio(a.input) else []
+    meta["bleeps"] = [[round(s, 2), round(e, 2)] for s, e in spans]
+    if spans:
+        on = "+".join(f"between(t,{s:.2f},{e:.2f})" for s, e in spans)
+        vf += (f";[0:a]volume=0:enable='{on}'[mute];sine=f=1000:sample_rate=48000,volume=0.3,volume=0:enable='not({on})'[tone];"
+               f"[mute][tone]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]")
+        amap, af = ["-map", "[aout]"], []
+    else:
+        amap, af = ["-map", "0:a?"], ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
+    cmd = (["ffmpeg", "-y", "-v", "error", "-i", a.input, "-filter_complex", vf, "-map", "[v]"] + amap +
+           ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30"] + af +
+           ["-ar", "48000", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", a.out])
     subprocess.check_call(cmd)
+    Path(a.out).with_suffix(".meta.json").write_text(json.dumps(meta))
+    print(json.dumps({"render": meta}))
     print(json.dumps({"out": a.out, "duration": round(dur, 2), "layout": a.layout}))
 
 
