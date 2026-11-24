@@ -298,6 +298,11 @@ def bleep_spans(words_json, shift=0.0, until=1e9):
     return out
 
 
+# Facecam-Aufbereitung: Kompressionsblöcke glätten, sauber hochskalieren, leicht nachschärfen
+FC_CLEAN = "hqdn3d=1.5:1.5:3:3"
+FC_SHARP = "unsharp=5:5:0.8:3:3:0.0"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -305,7 +310,8 @@ def main():
     ap.add_argument("--layout", default="auto", choices=["auto", "split", "full", "blur"])
     ap.add_argument("--fc-corner", default="tr", choices=["tl", "tr", "bl", "br"])
     ap.add_argument("--fc-size", type=float, default=0.26, help="Facecam-Breite als Anteil der Quellbreite")
-    ap.add_argument("--split", type=float, default=0.40, help="Anteil oben (Facecam)")
+    ap.add_argument("--split", type=float, default=0.32, help="Anteil oben (Facecam)")
+    ap.add_argument("--fc-maxup", type=float, default=2.2, help="Facecam höchstens so stark vergrößern (gegen Verpixeln)")
     ap.add_argument("--zoom", type=float, default=1.0)
     ap.add_argument("--gpx", type=float, default=0.5, help="Gameplay links/rechts 0..1")
     ap.add_argument("--hook", default="")
@@ -328,19 +334,21 @@ def main():
     a.input, dur, sub_shift, sub_until = story_cut(a, dur)
     top_h = even(H * a.split)
     face = None
+    fc_up = None
     if a.layout == "auto":
         face = detect_facecam(a.input, vw, vh, dur)
         a.layout = "split" if face else "blur"
         print(json.dumps({"auto_layout": a.layout, "face": face}))
     if a.layout == "split" and face:
         cx, cy, fwid = face
-        fw = even(min(vw, fwid * 3.4)); fh = even(fw / (W / top_h))
+        fw = even(min(vw, max(fwid * 3.4, W / a.fc_maxup))); fh = even(fw / (W / top_h))
         if fh > vh:
             fh = even(vh); fw = even(fh * (W / top_h))
         fx = even(min(max(0, cx - fw / 2), vw - fw)); fy = even(min(max(0, cy - fh * 0.45), vh - fh))
         gw, gh, gx, gy = crop_for(vw, vh, W / (H - top_h), a.zoom, a.gpx, 0.5)
-        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},scale={W}:{top_h}[t];"
-              f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}[g];[t][g]vstack,"
+        fc_up = round(W / fw, 2)
+        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},{FC_CLEAN},scale={W}:{top_h}:flags=lanczos,{FC_SHARP}[t];"
+              f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}:flags=lanczos[g];[t][g]vstack,"
               f"drawbox=x=0:y={top_h-3}:w={W}:h=6:color=0xff3e9d:t=fill")
     elif a.layout == "split":
         fw, fh, _, _ = crop_for(vw, vh, W / top_h, 1.0, 0, 0)
@@ -350,13 +358,14 @@ def main():
         if a.fc_box:
             bx, by, bw, bh = [float(v) for v in a.fc_box.split(",")]
             cx, cy = (bx + bw / 2) * vw, (by + bh / 2) * vh
-            fw = even(max(bw * vw, bh * vh * W / top_h)); fh = even(fw / (W / top_h))
+            fw = even(min(vw, max(bw * vw, bh * vh * W / top_h, W / a.fc_maxup))); fh = even(fw / (W / top_h))
             if fh > vh:
                 fh = even(vh); fw = even(fh * W / top_h)
             fx = even(min(max(0, cx - fw / 2), vw - fw)); fy = even(min(max(0, cy - fh / 2), vh - fh))
         gw, gh, gx, gy = crop_for(vw, vh, W / (H - top_h), a.zoom, a.gpx, 0.5)
-        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},scale={W}:{top_h}[t];"
-              f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}[g];[t][g]vstack,"
+        fc_up = round(W / fw, 2)
+        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},{FC_CLEAN},scale={W}:{top_h}:flags=lanczos,{FC_SHARP}[t];"
+              f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}:flags=lanczos[g];[t][g]vstack,"
               f"drawbox=x=0:y={top_h-3}:w={W}:h=6:color=0xff3e9d:t=fill")
     elif a.layout == "full":
         cw, ch, cx, cy = crop_for(vw, vh, 9 / 16, a.zoom, a.gpx, 0.5)
@@ -371,7 +380,7 @@ def main():
     luma = measure_luma(a.input, dur)
     lf, gamma = light_filter(a, luma)
     vf = vf.replace("[0:v]", "[0:v]fps=30," + lf, 1)
-    meta = {"layout": a.layout, "face": face, "luma": round(luma, 1) if luma else None, "gamma": gamma}
+    meta = {"layout": a.layout, "face": face, "luma": round(luma, 1) if luma else None, "gamma": gamma, "fc_upscale": fc_up}
     ass = Path(a.out).with_suffix(".ass")
     ass.write_text(build_ass(a, dur, top_h, word_chunks(a.words, shift=sub_shift, until=sub_until)), encoding="utf-8")
     if a.style == "v2":
@@ -395,7 +404,7 @@ def main():
     else:
         amap, af = ["-map", "0:a?"], ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
     cmd = (["ffmpeg", "-y", "-v", "error", "-i", a.input, "-filter_complex", vf, "-map", "[v]"] + amap +
-           ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30"] + af +
+           ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30"] + af +
            ["-ar", "48000", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", a.out])
     subprocess.check_call(cmd)
     Path(a.out).with_suffix(".meta.json").write_text(json.dumps(meta))
