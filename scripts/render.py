@@ -303,6 +303,19 @@ FC_CLEAN = "hqdn3d=1.5:1.5:3:3"
 FC_SHARP = "unsharp=5:5:0.8:3:3:0.0"
 
 
+def face_panel(fw, fh, fx, fy, top_h, maxup):
+    """Facecam-Feld oben. Vergrößerung höchstens maxup (1.0 = Originalgröße, gestochen scharf).
+    Ist die Facecam schmaler als das Feld, füllt eine unscharfe, abgedunkelte Kopie den Rest."""
+    s = min(maxup, W / fw)
+    crop = f"crop={fw}:{fh}:{fx}:{fy},{FC_CLEAN}"
+    if s * fw >= W - 2:
+        return round(W / fw, 2), f"{crop},scale={W}:{top_h}:flags=lanczos" + (f",{FC_SHARP}" if s > 1.05 else "")
+    pw, ph = even(fw * s), even(fh * s)
+    fg = f"scale={pw}:{ph}:flags=lanczos" + (f",{FC_SHARP}" if s > 1.05 else "")
+    return round(s, 2), (f"{crop},split=2[fa][fb];[fa]scale={W}:{top_h},boxblur=25:2,eq=brightness=-0.3[fbg];"
+                         f"[fb]{fg}[ffg];[fbg][ffg]overlay=(W-w)/2:(H-h)/2")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -311,7 +324,7 @@ def main():
     ap.add_argument("--fc-corner", default="tr", choices=["tl", "tr", "bl", "br"])
     ap.add_argument("--fc-size", type=float, default=0.26, help="Facecam-Breite als Anteil der Quellbreite")
     ap.add_argument("--split", type=float, default=0.32, help="Anteil oben (Facecam)")
-    ap.add_argument("--fc-maxup", type=float, default=2.2, help="Facecam höchstens so stark vergrößern (gegen Verpixeln)")
+    ap.add_argument("--fc-maxup", type=float, default=1.0, help="Facecam höchstens so stark vergrößern; 1.0 = Originalgröße, Rest unscharfer Hintergrund")
     ap.add_argument("--zoom", type=float, default=1.0)
     ap.add_argument("--gpx", type=float, default=0.5, help="Gameplay links/rechts 0..1")
     ap.add_argument("--hook", default="")
@@ -341,13 +354,13 @@ def main():
         print(json.dumps({"auto_layout": a.layout, "face": face}))
     if a.layout == "split" and face:
         cx, cy, fwid = face
-        fw = even(min(vw, max(fwid * 3.4, W / a.fc_maxup))); fh = even(fw / (W / top_h))
+        fw = even(min(vw, max(fwid * 3.4, vw * 0.21))); fh = even(fw / (W / top_h))
         if fh > vh:
             fh = even(vh); fw = even(fh * (W / top_h))
         fx = even(min(max(0, cx - fw / 2), vw - fw)); fy = even(min(max(0, cy - fh * 0.45), vh - fh))
         gw, gh, gx, gy = crop_for(vw, vh, W / (H - top_h), a.zoom, a.gpx, 0.5)
-        fc_up = round(W / fw, 2)
-        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},{FC_CLEAN},scale={W}:{top_h}:flags=lanczos,{FC_SHARP}[t];"
+        fc_up, panel = face_panel(fw, fh, fx, fy, top_h, a.fc_maxup)
+        vf = (f"[0:v]split=2[a][b];[a]{panel}[t];"
               f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}:flags=lanczos[g];[t][g]vstack,"
               f"drawbox=x=0:y={top_h-3}:w={W}:h=6:color=0xff3e9d:t=fill")
     elif a.layout == "split":
@@ -358,13 +371,13 @@ def main():
         if a.fc_box:
             bx, by, bw, bh = [float(v) for v in a.fc_box.split(",")]
             cx, cy = (bx + bw / 2) * vw, (by + bh / 2) * vh
-            fw = even(min(vw, max(bw * vw, bh * vh * W / top_h, W / a.fc_maxup))); fh = even(fw / (W / top_h))
+            fw = even(min(vw, max(bw * vw, bh * vh * W / top_h))); fh = even(fw / (W / top_h))
             if fh > vh:
                 fh = even(vh); fw = even(fh * W / top_h)
             fx = even(min(max(0, cx - fw / 2), vw - fw)); fy = even(min(max(0, cy - fh / 2), vh - fh))
         gw, gh, gx, gy = crop_for(vw, vh, W / (H - top_h), a.zoom, a.gpx, 0.5)
-        fc_up = round(W / fw, 2)
-        vf = (f"[0:v]split=2[a][b];[a]crop={fw}:{fh}:{fx}:{fy},{FC_CLEAN},scale={W}:{top_h}:flags=lanczos,{FC_SHARP}[t];"
+        fc_up, panel = face_panel(fw, fh, fx, fy, top_h, a.fc_maxup)
+        vf = (f"[0:v]split=2[a][b];[a]{panel}[t];"
               f"[b]crop={gw}:{gh}:{gx}:{gy},scale={W}:{H-top_h}:flags=lanczos[g];[t][g]vstack,"
               f"drawbox=x=0:y={top_h-3}:w={W}:h=6:color=0xff3e9d:t=fill")
     elif a.layout == "full":
