@@ -146,10 +146,11 @@ jobs:
           BRIGHTNESS: ${{ matrix.job.brightness || 'auto' }}
           BLEEP: ${{ matrix.job.bleep || 'on' }}
           FCBOX: ${{ matrix.job.fc_box }}
+          FCMAX: ${{ matrix.job.fc_maxup }}
         run: |
           WORDS=""; [ -f words.json ] && WORDS="--words words.json"
           STORY="--style $STYLE --ending $ENDING"; [ "$TEASER" = "true" ] && STORY="$STORY --teaser"
-          STORY="$STORY --brightness $BRIGHTNESS --bleep $BLEEP"; [ -n "$FCBOX" ] && STORY="$STORY --fc-box $FCBOX"
+          STORY="$STORY --brightness $BRIGHTNESS --bleep $BLEEP"; [ -n "$FCBOX" ] && STORY="$STORY --fc-box $FCBOX"; [ -n "$FCMAX" ] && STORY="$STORY --fc-maxup $FCMAX"
           python scripts/render.py --input src.mp4 --out "$NAME.mp4" --layout "$LAYOUT" \
             --fc-corner "$CORNER" --fc-size "$FCSIZE" --hook "$HOOK" --credit "$CREDIT" --disc "$DISC" $WORDS $STORY
 
