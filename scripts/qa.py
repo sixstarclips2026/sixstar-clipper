@@ -131,6 +131,9 @@ def main():
         meta = json.load(open(re.sub(r"\.mp4$", ".meta.json", clip)))
     except Exception:
         pass
+    up = meta.get("fc_upscale") if isinstance(meta, dict) else None
+    if up and up > 2.6:
+        warns.append(f"Facecam {up}x vergrößert – wirkt verpixelt (Ziel höchstens 2,2x)")
     res = {"clip": clip, "duration": round(dur, 1), "passed": not fails, "fails": fails, "warns": warns,
            "luma": round(luma, 1) if luma is not None else None, "face_share": fs, "render": meta}
     print(json.dumps(res, ensure_ascii=False, indent=2))
