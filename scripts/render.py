@@ -173,8 +173,9 @@ def censor(text):
     return CENSOR.sub(lambda m: m.group(0)[0] + "*" * (len(m.group(0)) - 1), text)
 
 
-def word_chunks(words_json, max_words=3, max_gap=0.6):
+def word_chunks(words_json, max_words=3, max_gap=0.6, shift=0.0, until=1e9):
     words = json.loads(Path(words_json).read_text()) if words_json else []
+    words = [dict(w, start=w["start"] + shift, end=min(w["end"], until) + shift) for w in words if w["start"] < until - 0.1]
     chunks, cur = [], []
     for w in words:
         if cur and (len(cur) >= max_words or w["start"] - cur[-1]["end"] > max_gap):
@@ -186,8 +187,8 @@ def word_chunks(words_json, max_words=3, max_gap=0.6):
              "text": " ".join(x["word"].strip() for x in c)} for c in chunks]
 
 
-def reaction_peaks(path, dur, max_n=3, gap=4.0):
-    """Lauteste Reaktionsmomente (Momentary Loudness, 0,1-s-Raster) für Punch-in-Zooms."""
+def reaction_peaks(path, dur, max_n=3, gap=4.0, with_level=False):
+    """Lauteste Reaktionsmomente (Momentary Loudness, 0,1-s-Raster) für Punch-in-Zooms, Cold Open und Pointen-Ende."""
     r = subprocess.run(["ffmpeg", "-nostats", "-v", "info", "-i", path, "-vn", "-af", "ebur128", "-f", "null", "-"],
                        capture_output=True, text=True).stderr
     pts = [(float(t), float(m)) for t, m in re.findall(r"t:\s*([\d.]+)\s+TARGET.*?M:\s*(-?[\d.]+)", r)]
@@ -198,11 +199,51 @@ def reaction_peaks(path, dur, max_n=3, gap=4.0):
     cand = sorted((p for p in pts if p[1] > med + 6 and 1.0 < p[0] < dur - 1.5), key=lambda p: -p[1])
     out = []
     for t, m in cand:
-        if all(abs(t - o) >= gap for o in out):
-            out.append(t)
+        if all(abs(t - o[0]) >= gap for o in out):
+            out.append((t, m))
         if len(out) >= max_n:
             break
-    return sorted(out)
+    out.sort()
+    return out if with_level else [t for t, _ in out]
+
+
+def has_audio(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout
+    return bool(out.strip())
+
+
+def story_cut(a, dur):
+    """Dramaturgie vor dem Layout:
+    - ending=punch: Ende = letzte große Reaktion + 1 Takt (Peak-End-Regel, Pause nach der Pointe)
+    - teaser: Cold Open – die lauteste Reaktion 1,5 s vorab, weißer Blitz, dann der Clip von vorn (Neugierlücke)
+    Gibt (neue Eingabedatei, Dauer, Zeitversatz der Untertitel, Ende im Original) zurück."""
+    if not (a.teaser or a.ending == "punch") or not has_audio(a.input):
+        return a.input, dur, 0.0, dur
+    pk = reaction_peaks(a.input, dur, max_n=3, with_level=True)
+    if not pk:
+        print(json.dumps({"story": "keine Reaktionsspitze gefunden – unverändert"}))
+        return a.input, dur, 0.0, dur
+    end_t = dur
+    if a.ending == "punch":
+        e = min(dur, pk[-1][0] + a.beat)
+        if 7 <= e < dur - 0.5:
+            end_t = e
+    shift, filt, n = 0.0, "", 1
+    if a.teaser:
+        p = max(pk, key=lambda x: x[1])[0]
+        ts, te = max(0.0, p - 0.8), min(end_t, p + 0.7)
+        shift = te - ts
+        filt = (f"[0:v]trim={ts:.2f}:{te:.2f},setpts=PTS-STARTPTS[tv];[0:a]atrim={ts:.2f}:{te:.2f},asetpts=PTS-STARTPTS[ta];")
+        n = 2
+    filt += (f"[0:v]trim=0:{end_t:.2f},setpts=PTS-STARTPTS" + (",fade=t=in:st=0:d=0.3:color=white" if a.teaser else "") +
+             f"[mv];[0:a]atrim=0:{end_t:.2f},asetpts=PTS-STARTPTS[ma];")
+    filt += ("[tv][ta][mv][ma]" if a.teaser else "[mv][ma]") + f"concat=n={n}:v=1:a=1[v][a]"
+    pre = str(Path(a.out).with_suffix(".pre.mp4"))
+    subprocess.check_call(["ffmpeg", "-y", "-v", "error", "-i", a.input, "-filter_complex", filt, "-map", "[v]", "-map", "[a]",
+                           "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", "192k", pre])
+    print(json.dumps({"story": {"ende": round(end_t, 2), "cold_open": round(shift, 2), "spitzen": [round(x[0], 1) for x in pk]}}))
+    return pre, probe(pre)[2], shift, end_t
 
 
 def zoom_expr(peaks, z=0.12, hold=1.1):
@@ -234,10 +275,14 @@ def main():
     ap.add_argument("--disc-sec", type=float, default=3)
     ap.add_argument("--words", default="", help="Whisper-Wort-JSON für Untertitel")
     ap.add_argument("--font", default="Anton")
+    ap.add_argument("--teaser", action="store_true", help="Cold Open: lauteste Reaktion 1,5 s vorab zeigen")
+    ap.add_argument("--ending", default="natural", choices=["natural", "punch"], help="punch: Ende auf letzter Reaktion + 1 Takt")
+    ap.add_argument("--beat", type=float, default=1.3, help="Takt nach der Pointe in Sekunden")
     ap.add_argument("--style", default="v2", choices=["v1", "v2"], help="v2: Karaoke-Untertitel, Hook-Box, Punch-in-Zooms, Fortschrittsbalken")
     a = ap.parse_args()
 
     vw, vh, dur = probe(a.input)
+    a.input, dur, sub_shift, sub_until = story_cut(a, dur)
     top_h = even(H * a.split)
     face = None
     if a.layout == "auto":
@@ -275,7 +320,7 @@ def main():
     # 60-fps-Quellen (Twitch) zuerst auf 30 fps: zoompan erzeugt sonst Zeitlupe mit doppelter Länge
     vf = vf.replace("[0:v]", "[0:v]fps=30,", 1)
     ass = Path(a.out).with_suffix(".ass")
-    ass.write_text(build_ass(a, dur, top_h, word_chunks(a.words)), encoding="utf-8")
+    ass.write_text(build_ass(a, dur, top_h, word_chunks(a.words, shift=sub_shift, until=sub_until)), encoding="utf-8")
     if a.style == "v2":
         peaks = reaction_peaks(a.input, dur)
         print(json.dumps({"punch_ins": peaks}))
