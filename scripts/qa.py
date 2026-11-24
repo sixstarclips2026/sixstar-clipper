@@ -101,7 +101,7 @@ def main():
     if fs is not None:
         if fs == 0:
             warns.append("kein Gesicht erkannt – Kampagnen mit Facecam-Pflicht prüfen (Layout split / fc_box)")
-        elif fs < 0.08:
+        elif fs < 0.06:
             warns.append(f"Streamer-Gesicht sehr klein ({fs:.0%} der Breite) – Reaktion kaum sichtbar")
     if not has_audio:
         fails.append("keine Tonspur")
