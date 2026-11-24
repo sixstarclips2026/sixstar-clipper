@@ -1,7 +1,10 @@
 {
   "clip": "clips_tmp/dom-002-finessed.mp4",
-  "duration": 52.1,
+  "duration": 43.0,
   "passed": true,
   "fails": [],
-  "warns": []
+  "warns": [],
+  "luma": 81.8,
+  "face_share": null,
+  "render": {}
 }

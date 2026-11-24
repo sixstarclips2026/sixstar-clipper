@@ -1,0 +1,10 @@
+{
+  "clip": "clips_tmp/kai-001-skunkape-v2.mp4",
+  "duration": 12.5,
+  "passed": true,
+  "fails": [],
+  "warns": [],
+  "luma": 103.3,
+  "face_share": null,
+  "render": {}
+}
