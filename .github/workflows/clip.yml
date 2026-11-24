@@ -70,6 +70,23 @@ jobs:
           fc-list | grep -qi anton || { echo "Schrift Anton fehlt – Abbruch, damit kein Clip im falschen Stil entsteht"; exit 1; }
           pip install -q -U yt-dlp faster-whisper opencv-python-headless
 
+      - name: Hook prüfen (max. 9 Wörter, ein Schlüsselwort in Sternchen)
+        env:
+          HOOK: ${{ matrix.job.hook }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          h = os.environ.get("HOOK", "").strip()
+          if not h:
+              print("Kein Hook gesetzt – Clip ohne Neugierlücke wird nicht gerendert"); sys.exit(1)
+          n = len(h.replace("*", " ").split())
+          if n > 9:
+              print(f"Hook hat {n} Wörter (max. 9): {h}"); sys.exit(1)
+          if h.count("*") < 2:
+              print(f"Hook ohne *Schlüsselwort*: {h}"); sys.exit(1)
+          print(f"Hook ok ({n} Wörter): {h}")
+          PY
+
       - name: Ausschnitt herunterladen
         env:
           URL: ${{ matrix.job.url }}
@@ -103,10 +120,14 @@ jobs:
           HOOK: ${{ matrix.job.hook }}
           CREDIT: ${{ matrix.job.credit }}
           DISC: ${{ matrix.job.disc || '#ad' }}
+          STYLE: ${{ matrix.job.style || 'v2' }}
+          ENDING: ${{ matrix.job.ending || 'natural' }}
+          TEASER: ${{ matrix.job.teaser }}
         run: |
           WORDS=""; [ -f words.json ] && WORDS="--words words.json"
+          STORY="--style $STYLE --ending $ENDING"; [ "$TEASER" = "true" ] && STORY="$STORY --teaser"
           python scripts/render.py --input src.mp4 --out "$NAME.mp4" --layout "$LAYOUT" \
-            --fc-corner "$CORNER" --fc-size "$FCSIZE" --hook "$HOOK" --credit "$CREDIT" --disc "$DISC" $WORDS
+            --fc-corner "$CORNER" --fc-size "$FCSIZE" --hook "$HOOK" --credit "$CREDIT" --disc "$DISC" $WORDS $STORY
 
       - name: Qualitäts-Tor (Ton, Format, Länge, Media-Share)
         env:
