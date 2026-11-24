@@ -1,7 +1,10 @@
 {
   "clip": "clips_tmp/skii-001-fly.mp4",
-  "duration": 30.1,
+  "duration": 23.3,
   "passed": true,
   "fails": [],
-  "warns": []
+  "warns": [],
+  "luma": 118.4,
+  "face_share": null,
+  "render": {}
 }
