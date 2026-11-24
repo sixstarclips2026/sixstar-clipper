@@ -29,6 +29,45 @@ def silence_share(path, dur):
     return total / dur if dur else 1.0
 
 
+def center_luma(path, dur, samples=6):
+    """Helligkeit der Bildmitte (ohne Hook-Box und Untertitel)."""
+    vals = []
+    for k in range(samples):
+        r = subprocess.run(["ffmpeg", "-v", "info", "-ss", f"{dur * (k + 0.5) / samples:.2f}", "-i", path, "-frames:v", "1",
+                            "-vf", "crop=iw:ih*0.4:0:ih*0.3,scale=270:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+                            "-f", "null", "-"], capture_output=True, text=True).stderr
+        m = re.findall(r"YAVG=([\d.]+)", r)
+        if m:
+            vals.append(float(m[-1]))
+    return sum(vals) / len(vals) if vals else None
+
+
+def face_share(path, dur, samples=6):
+    """Größtes erkanntes Gesicht als Anteil der Bildbreite (None = OpenCV fehlt)."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    try:
+        casc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        if casc.empty():
+            return None
+    except Exception:
+        return None
+    best = 0.0
+    for k in range(samples):
+        png = f"/tmp/qa_{k}.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{dur * (k + 0.5) / samples:.2f}", "-i", path,
+                        "-frames:v", "1", png])
+        img = cv2.imread(png)
+        if img is None:
+            continue
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        for (x, y, w, h) in casc.detectMultiScale(g, 1.1, 5, minSize=(30, 30)):
+            best = max(best, w / img.shape[1])
+    return round(best, 3)
+
+
 def main():
     clip = sys.argv[1]
     words = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -48,8 +87,22 @@ def main():
         fails.append(f"Format {v.get('width')}x{v.get('height')} statt 1080x1920")
     if dur < 7:
         fails.append(f"zu kurz ({dur:.1f} s, Minimum 7 s)")
-    if dur > 90:
-        warns.append(f"lang ({dur:.0f} s) – Shorts/TikTok-Retention prüfen")
+    if dur > 60:
+        fails.append(f"zu lang ({dur:.0f} s) – Handbuch: Ziel 15–30 s, max. 45 s; mit \"ending\": \"punch\" kürzen")
+    elif dur > 45:
+        warns.append(f"lang ({dur:.0f} s) – über 45 s fällt die Wiedergabequote meist deutlich ab")
+    luma = center_luma(clip, dur) if dur else None
+    if luma is not None:
+        if luma < 35:
+            fails.append(f"zu dunkel (Bildmitte {luma:.0f}/255) – auf dem Handy nicht erkennbar")
+        elif luma < 55:
+            warns.append(f"eher dunkel (Bildmitte {luma:.0f}/255)")
+    fs = face_share(clip, dur) if dur else None
+    if fs is not None:
+        if fs == 0:
+            warns.append("kein Gesicht erkannt – Kampagnen mit Facecam-Pflicht prüfen (Layout split / fc_box)")
+        elif fs < 0.08:
+            warns.append(f"Streamer-Gesicht sehr klein ({fs:.0%} der Breite) – Reaktion kaum sichtbar")
     if not has_audio:
         fails.append("keine Tonspur")
     else:
@@ -73,7 +126,13 @@ def main():
         if len(text.split()) < 12:
             warns.append("kaum Sprache – Hook muss allein tragen")
 
-    res = {"clip": clip, "duration": round(dur, 1), "passed": not fails, "fails": fails, "warns": warns}
+    meta = {}
+    try:
+        meta = json.load(open(re.sub(r"\.mp4$", ".meta.json", clip)))
+    except Exception:
+        pass
+    res = {"clip": clip, "duration": round(dur, 1), "passed": not fails, "fails": fails, "warns": warns,
+           "luma": round(luma, 1) if luma is not None else None, "face_share": fs, "render": meta}
     print(json.dumps(res, ensure_ascii=False, indent=2))
     if out:
         json.dump(res, open(out, "w"), ensure_ascii=False, indent=2)
