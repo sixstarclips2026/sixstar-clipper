@@ -3,5 +3,8 @@
   "duration": 14.0,
   "passed": true,
   "fails": [],
-  "warns": []
+  "warns": [],
+  "luma": 102.4,
+  "face_share": null,
+  "render": {}
 }
