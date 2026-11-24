@@ -39,6 +39,25 @@ jobs:
                   base.update(j)
                   j = base
               out.append(j)
+          # Doppelter Moment? Gleiche Quelle mit überlappender Zeit unter anderem Namen = Reupload-Risiko
+          def sec(v):
+              p = [float(x) for x in str(v or 0).split(":")]
+              return sum(x * 60 ** i for i, x in enumerate(reversed(p)))
+          subprocess.run(["gh", "release", "download", "clips", "-R", os.environ["REPO"], "-p", "*.job.json",
+                          "-D", "used", "--clobber"], capture_output=True)
+          import glob
+          old = []
+          for f in glob.glob("used/*.job.json"):
+              try:
+                  old.append(json.load(open(f)))
+              except Exception:
+                  pass
+          for j in out:
+              s, e = sec(j.get("start")), sec(j.get("end"))
+              for o in old:
+                  if o.get("name") != j["name"] and o.get("url") == j.get("url"):
+                      if min(e, sec(o.get("end"))) - max(s, sec(o.get("start"))) > 3:
+                          print(f"::warning::{j['name']} zeigt denselben Moment wie {o['name']} – nur eine Version posten (Reupload-Risiko)")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write("jobs=" + json.dumps(out) + "\n")
           print(json.dumps(out, indent=1))
@@ -123,9 +142,13 @@ jobs:
           STYLE: ${{ matrix.job.style || 'v2' }}
           ENDING: ${{ matrix.job.ending || 'natural' }}
           TEASER: ${{ matrix.job.teaser }}
+          BRIGHTNESS: ${{ matrix.job.brightness || 'auto' }}
+          BLEEP: ${{ matrix.job.bleep || 'on' }}
+          FCBOX: ${{ matrix.job.fc_box }}
         run: |
           WORDS=""; [ -f words.json ] && WORDS="--words words.json"
           STORY="--style $STYLE --ending $ENDING"; [ "$TEASER" = "true" ] && STORY="$STORY --teaser"
+          STORY="$STORY --brightness $BRIGHTNESS --bleep $BLEEP"; [ -n "$FCBOX" ] && STORY="$STORY --fc-box $FCBOX"
           python scripts/render.py --input src.mp4 --out "$NAME.mp4" --layout "$LAYOUT" \
             --fc-corner "$CORNER" --fc-size "$FCSIZE" --hook "$HOOK" --credit "$CREDIT" --disc "$DISC" $WORDS $STORY
 
